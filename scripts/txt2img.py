@@ -13,7 +13,8 @@ from tqdm import tqdm
 from scripts.utils import gray_code
 import robust_eval
 import mapping_module
-
+from PIL import Image
+import json
 
 def cal_acc(input, gt, gray_list, bits):
     trans_fn = np.frompyfunc(lambda x: int(gray_list[int(x)], 2), 1, 1)
@@ -251,9 +252,21 @@ def main():
 
     # prompt_path = f'/groupshare_1/text_prompt_dataset/{opt.test_prompts}_dataset.txt'
     prompt_path = opt.test_prompts
-    with open(prompt_path, 'r') as f:
-        prompts = f.readlines()
-        prompts = [i.strip() for i in prompts]
+    if prompt_path.endswith('.json'):
+        prompts = []
+        num_lines = 1000
+        with open(prompt_path, 'r') as f:
+            for line in f:
+                if len(prompts) >= num_lines:
+                    break
+                data = json.loads(line.strip())
+                prompts.append(data['Prompt'])
+        
+    
+    else:
+        with open(prompt_path, 'r') as f:
+            prompts = f.readlines()
+            prompts = [i.strip() for i in prompts]
 
     # image composition
     batch_size = opt.n_samples
@@ -305,6 +318,23 @@ def main():
                                         )
 
                 x0_samples = model.decode_first_stage(z_0)
+
+                # 如果需要保存生成的隐写图像
+                for i, img_tensor in enumerate(x0_samples):
+                    # 将张量转换为numpy数组，并调整维度顺序以匹配PIL的要求
+                    img_array = img_tensor.cpu().numpy().transpose(1, 2, 0)
+                    # 可能需要进行额外的处理，比如剪裁或缩放，以及将像素值从[-1,1]或其他范围映射到[0,255]
+                    img_array = ((img_array + 1) / 2 * 255).clip(0, 255).astype(np.uint8)
+                    
+                    # 创建图像对象
+                    img = Image.fromarray(img_array[:, :, :3])  # 假设是RGB图像
+                    
+                    # 构建保存路径
+                    save_path = os.path.join(outpath, f'stego_{j}_{i}.png')  # 'stego'表示隐写图像
+                    
+                    # 保存图像
+                    img.save(save_path)
+                    print(f"Saved stego image to {save_path}")
 
                 # #  here: 已经封装了一系列的函数 用于执行相关鲁棒性测试
                 x0_samples = attack_func(x0_samples, factor=attack_factor, tmp_image_name=tmp_image_name).to(device)
